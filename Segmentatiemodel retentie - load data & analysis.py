@@ -761,17 +761,18 @@ fig_heatmap.show()
 
 # COMMAND ----------
 
-df_paulien = df_processed[df_processed['Cluster'] == 1]
+df_paulien = df_processed[df_processed['Cluster'] == 3]
 
+current_date = datetime.now().strftime('%d%m%y')
 df_paulien.to_parquet(
-    '/Workspace/data_analysts/MM/cda-4721-segmentatie-retentie/df_paulien_0502.parquet',
+    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_paulien_{current_date}.parquet',
     index=False
 )
 
 # COMMAND ----------
 
 # DBTITLE 1,load parquet file cluster 1
-df_paulien = pd.read_parquet('/Workspace/data_analysts/MM/cda-4721-segmentatie-retentie/df_paulien_0502.parquet',)
+df_paulien = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_paulien_160226.parquet',)
 df_paulien.head()
 
 # COMMAND ----------
@@ -781,6 +782,12 @@ df_edm = spark.sql('''
 
 SELECT * FROM `snowflake_prd_prototype_data_analysts`.`playground`.BASETABLE_RETENTION_SEGMENTATION_V2_28022026 
 ''').toPandas()
+
+# COMMAND ----------
+
+#inlezen vanaf de edm dataset
+df_edm = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_edm_160226.parquet',)
+df_edm.head()
 
 # COMMAND ----------
 
@@ -812,16 +819,22 @@ df_paulien_edm.head()
 
 # COMMAND ----------
 
-import seaborn as sns
 import matplotlib.pyplot as plt
+import seaborn as sns
 
-# Select only numeric columns for the heatmap
-numeric_cols = df_paulien_edm.select_dtypes(include=['number']).columns
-corr_matrix = df_paulien_edm[numeric_cols].corr()
+numeric_cols = df_paulien_edm.select_dtypes(include='number').columns
+n_cols = 3
+n_rows = (len(numeric_cols) + n_cols - 1) // n_cols
+plt.figure(figsize=(5 * n_cols, 4 * n_rows))
 
-plt.figure(figsize=(14, 10))
-sns.heatmap(corr_matrix, annot=False, cmap='RdBu_r', center=0)
-plt.title('Heatmap van correlaties tussen numerieke kolommen')
+for idx, col in enumerate(numeric_cols, 1):
+    plt.subplot(n_rows, n_cols, idx)
+    sns.histplot(df_paulien_edm[col].dropna(), kde=True)
+    plt.title(col, fontsize=10)
+    plt.xlabel(col, fontsize=9)
+    plt.ylabel('', fontsize=9)
+    plt.xticks(fontsize=8)
+
 plt.tight_layout()
 plt.show()
 
@@ -865,15 +878,14 @@ plt.figure(figsize=(5 * n_cols, 4 * n_rows))
 
 for idx, col in enumerate(feature_cols, 1):
     plt.subplot(n_rows, n_cols, idx)
-    if df_essent[col].dtype == 'object':
-        sns.countplot(data=df_essent, x=col, order=df_essent[col].value_counts().index)
-        plt.xticks(rotation=60, ha='right', fontsize=8)
+    if df_paulien_edm[col].dtype.kind in ('i', 'u', 'f'):
+        sns.histplot(df_paulien_edm[col].dropna(), kde=True)
     else:
-        sns.histplot(df_essent[col], kde=True)
-        plt.xticks(fontsize=8)
-    plt.title(f'Essent: {col}', fontsize=10)
+        sns.countplot(y=df_paulien_edm[col].astype(str))
+    plt.title(col, fontsize=10)
     plt.xlabel(col, fontsize=9)
     plt.ylabel('', fontsize=9)
+    plt.xticks(fontsize=8)
 
 plt.tight_layout()
 plt.show()
