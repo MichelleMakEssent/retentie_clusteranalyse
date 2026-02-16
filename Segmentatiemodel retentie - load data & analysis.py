@@ -15,6 +15,7 @@ import json
 from scipy.stats import norm
 from itertools import combinations
 from scipy.stats import chi2_contingency
+from datetime import datetime
 
 
 # COMMAND ----------
@@ -105,9 +106,10 @@ for col in ['CUSTOMERNUMBER', 'AANTAL_MAANDEN_KLANT', 'KANAAL', 'HOEVAAK_KLANT_G
 # COMMAND ----------
 
 # DBTITLE 1,preprocessed df to parquet
+
+current_date = datetime.now().strftime('%d%m%y')
 processed_df.to_parquet(
-    '/Workspace/data_analysts/MM/cda-4721-segmentatie-retentie/processed_df_0502.parquet',
-    #'/Workspace/data_analysts/SJB/cda-4567-segmentatie-retentie/processed_df.parquet',
+    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/processed_df_{current_date}.parquet',
     index=False
 )
 
@@ -123,7 +125,8 @@ print(processed_df.dtypes)
 
 # COMMAND ----------
 
-df_processed = pd.read_parquet( '/Workspace/data_analysts/MM/cda-4721-segmentatie-retentie/processed_df_0502.parquet',)
+#ik moet hier alsnog handmatig de datum inzetten, checken of het mogelijk is om die ook te automatiseren? 
+df_processed = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/processed_df_160226.parquet',)
 df_processed.head(15)
 
 # COMMAND ----------
@@ -413,77 +416,6 @@ df_scaled_check.describe().T[['mean', 'std']]
 
 # COMMAND ----------
 
-#testversie model van chatg
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
-import pandas as pd
-import numpy as np
-
-features = [
- #'HOEVAAK_KLANT_GEWEEST',
- 'AANTAL_MAANDEN_KLANT',
- 'AGE',
- 'TERUGLEVERING_JA',
- 'LIVE_CONTACTS',
- 'ENERGIEPROFIEL_INGEVULD',
- 'ONLINE_VISITS',
- 'CONSENT_GEGEVEN',
- 'LOYALTY_KLANT',
- 'ORIENTATIE_SCORE',
-# 'DAYS_RETENTIE_CONTRACT_GETEKEND',
- 'Moment_van_tekenen_Gemiddeld getekend',
- 'Moment_van_tekenen_Laat getekend',
- 'Moment_van_tekenen_Vroeg getekend',
- 'KANAAL_Face 2 Face',
- 'KANAAL_Inbound',
- 'KANAAL_Online',
- 'KANAAL_Online Partners',
- 'KANAAL_Outbound',
- 'KANAAL_Retail',
- ]
-
-# [3] Type-indeling (optioneel maar netjes)
-numeric_cols = [
-    'AANTAL_MAANDEN_KLANT','AGE','LIVE_CONTACTS','ONLINE_VISITS',
-    'LOYALTY_KLANT','ORIENTATIE_SCORE','DAYS_RETENTIE_CONTRACT_GETEKEND'
-]
-binary_cols = [
-    'TERUGLEVERING_JA','ENERGIEPROFIEL_INGEVULD','CONSENT_GEGEVEN',
-    'KANAAL_Face 2 Face','KANAAL_Inbound','KANAAL_Online',
-    'KANAAL_Online Partners','KANAAL_Outbound','KANAAL_Retail'
-]
-
-# [4] Transformers
-numeric_tf = Pipeline(steps=[
-    ('impute', SimpleImputer(strategy='median')),     # robuust bij scheve verdelingen/outliers
-    ('scale', StandardScaler())
-])
-
-binary_tf = Pipeline(steps=[
-    ('impute', SimpleImputer(strategy='most_frequent')),
-    ('scale', StandardScaler())  # of laat weg als je dummies ongeschaald wilt
-])
-
-ct = ColumnTransformer(
-    transformers=[
-        ('num', numeric_tf, numeric_cols),
-        ('bin', binary_tf, binary_cols),
-    ],
-    remainder='drop'
-)
-
-# [5] Fit/transform
-X = df_processed[features].copy()
-X_scaled = ct.fit_transform(X)
-
-# [6] Als je daarna kolomnamen terug wilt:
-out_cols = numeric_cols + binary_cols
-df_scaled = pd.DataFrame(X_scaled, columns=out_cols, index=X.index)
-
-# COMMAND ----------
-
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 
@@ -580,11 +512,16 @@ plt.show()
 # COMMAND ----------
 
 df_clusters = df_processed
+current_date = datetime.now().strftime('%d%m%y')
 
 df_clusters.to_parquet(
-    '/Workspace/data_analysts/MM/cda-4721-segmentatie-retentie/df_clusters_1602.parquet',
+    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_clusters_{current_date}.parquet',
     index=False
 )
+
+# COMMAND ----------
+
+current_date = datetime.now().strftime('%d%m%y')
 
 #originele tabel met edm data om te joinen 
 df_edm = spark.sql('''
@@ -593,7 +530,7 @@ SELECT * FROM `snowflake_prd_prototype_data_analysts`.`playground`.BASETABLE_RET
 
 #naar parquet schrijven om makkelijker op te halen zonder alle code te hoeven runnen 
 df_edm.to_parquet(
-    '/Workspace/data_analysts/MM/cda-4721-segmentatie-retentie/df_edm_1602.parquet',
+    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_edm_{current_date}.parquet',
     index=False
 )
 
@@ -605,13 +542,13 @@ df_edm.to_parquet(
 # COMMAND ----------
 
 #inlezen van de cluster dataset
-df_clusters = pd.read_parquet('/Workspace/data_analysts/MM/cda-4721-segmentatie-retentie/df_clusters_1602.parquet',)
+df_clusters = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_clusters_160226.parquet',)
 df_clusters.head()
 
 # COMMAND ----------
 
 #inlezen vanaf de edm dataset
-df_edm = pd.read_parquet('/Workspace/data_analysts/MM/cda-4721-segmentatie-retentie/df_edm_1602.parquet',)
+df_edm = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_edm_160226.parquet',)
 df_edm.head()
 
 # COMMAND ----------
@@ -638,13 +575,11 @@ df_clusters_edm.head()
 # COMMAND ----------
 
 # DBTITLE 1,visualisation of characteristics
-# [001] Imports
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
-
 from sklearn.preprocessing import OneHotEncoder
 
 # [010] Essent kleurdefinities
