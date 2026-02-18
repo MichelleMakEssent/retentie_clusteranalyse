@@ -538,6 +538,22 @@ df_edm.to_parquet(
 
 # MAGIC %md
 # MAGIC ## Load parquet dataset 
+# MAGIC
+# MAGIC Vanaf codeblok hieronder inladen als je opnieuw opstart. Alle regels hierboven zijn dan al gedaan en zitten in de parquet file.
+
+# COMMAND ----------
+
+import pandas as pd
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
+
+import numpy as np
+import plotly.express as px
+import json
+from scipy.stats import norm
+from itertools import combinations
+from scipy.stats import chi2_contingency
+from datetime import datetime
 
 # COMMAND ----------
 
@@ -553,24 +569,88 @@ df_edm.head()
 
 # COMMAND ----------
 
-#alle edm data joinen op de 'originele' dataset met de clusters 
-df_clusters['CUSTOMERNUMBER'] = df_clusters['CUSTOMERNUMBER'].astype(str)
-df_edm['CUSTOMERNUMBER'] = df_edm['CUSTOMERNUMBER'].astype(str)
-df_clusters['BRANDID'] = df_clusters['BRANDID'].astype(str)
-df_edm['BRANDID'] = df_edm['BRANDID'].astype(str)
+len(df_edm), len(df_clusters)
 
-#Zelfde kolomnamen checken behalve customernumber en brandid
-join_keys = ['CUSTOMERNUMBER', 'BRANDID']
-dup_cols = [col for col in df_clusters.columns if col in df_edm.columns and col not in join_keys]
+# COMMAND ----------
 
-#Droppen van de duplicate kolommen voor het joinen 
+df_clusters['CUSTOMERNUMBER'] = (
+    df_clusters['CUSTOMERNUMBER']
+        .astype("string")
+        .str.zfill(10)
+)
+
+df_edm['CUSTOMERNUMBER'] = (
+    df_edm['CUSTOMERNUMBER']
+        .astype("string")
+        .str.zfill(10)
+)
+
+#df_clusters['CUSTOMERNUMBER'] = df_clusters['CUSTOMERNUMBER'].astype("string")
+
+
+
+# COMMAND ----------
+
+#df_clusters.head()
+df_edm.head()
+
+# COMMAND ----------
+
+df_clusters.head()
+
+# COMMAND ----------
+
+dup_cols = [col for col in df_edm.columns if col in df_clusters.columns and col not in ['CUSTOMERNUMBER', 'BRANDID']] #kolommen die in beide bestaan droppen in 1
 df_edm_nodup = df_edm.drop(columns=dup_cols, errors='ignore')
 
-df_clusters_edm = df_clusters.merge(df_edm_nodup, on=join_keys)
+df_clusters_edm = df_clusters.merge(
+    df_edm_nodup,
+    on=['CUSTOMERNUMBER', 'BRANDID'],
+    how='left'
+)
+
+# COMMAND ----------
+
+len(df_clusters_edm)
 
 # COMMAND ----------
 
 df_clusters_edm.head()
+
+# COMMAND ----------
+
+df_clusters['CUSTOMERNUMBER'] = df_clusters['CUSTOMERNUMBER'].astype(str)
+df_clusters['BRANDID'] = df_clusters['BRANDID'].astype(str)
+#df_clusters['SLEUTEL'] = df_clusters['SLEUTEL'].astype(str)
+df_edm['CUSTOMERNUMBER'] = df_edm['CUSTOMERNUMBER'].astype(str)
+df_edm['BRANDID'] = df_edm['BRANDID'].astype(str)
+#df_edm['SLEUTEL'] = df_edm['SLEUTEL'].astype(str)
+
+join_keys = ['CUSTOMERNUMBER', 'BRANDID']
+dup_cols = [col for col in df_clusters.columns if col in df_edm.columns and col not in join_keys]
+df_edm_nodup = df_edm.drop(columns=dup_cols, errors='ignore')
+
+df_clusters_edm = df_clusters.merge(df_edm_nodup, on=join_keys, how='left')
+
+# COMMAND ----------
+
+len(df_clusters_edm)
+
+# COMMAND ----------
+
+# DBTITLE 1,Cell 48
+current_date = datetime.now().strftime('%d%m%y')
+
+#naar parquet schrijven om makkelijker op te halen zonder alle code te hoeven runnen 
+df_clusters_edm.to_parquet(
+    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_clusters_edm_{current_date}.parquet',
+    index=False
+)
+
+# COMMAND ----------
+
+# DBTITLE 1,Optimize DataFrame before saving
+
 
 # COMMAND ----------
 
@@ -598,11 +678,13 @@ feature_cols = [
     # 'LIVE_CONTACTS',
     'ENERGIEPROFIEL_INGEVULD',
     # 'ONLINE_VISITS',
-    'CONSENT_GEGEVEN','LOYALTY_KLANT',
+    'CONSENT_GEGEVEN','LOYALTY_KLANT', 'EDM_HH_KOOPKR','EDM_HH_LVNSFS2','EDM_HH_SOCKLAS','EDM_HH_WONTYP2','EDM_HH_WON_EIG','EDM_HH_E_TYPE','EDM_HH_MBEWUST'
+    
     # 'ORIENTATIE_SCORE','DAYS_RETENTIE_CONTRACT_GETEKEND',
-    'EDM_PROV','EDM_HH_4GEOTYP','EDM_HH_LVNSFS2','EDM_HH_KOOPKR','EDM_HH_OPLEID2','EDM_HH_FUNCTIE',
-    'EDM_HH_WONTYP2','EDM_HH_WON_EIG','EDM_HH_ZP_AANW','EDM_HH_MBEWUST','EDM_HH_E_TYPE','EDM_HH_BS_SRT',
-    'EDM_HH_B_SPAAR','EDM_HH_RISAVRS','EDM_HH_FINTYPE'
+    # 'EDM_PROV','EDM_HH_4GEOTYP','EDM_HH_LVNSFS2','EDM_HH_OPLEID2','EDM_HH_FUNCTIE',
+    # 'EDM_HH_WONTYP2','EDM_HH_WON_EIG','EDM_HH_ZP_AANW','EDM_HH_E_TYPE','EDM_HH_BS_SRT',
+    # 'EDM_HH_B_SPAAR','EDM_HH_RISAVRS','EDM_HH_FINTYPE',
+
 ]
 cluster_col = 'Cluster'  # let op: exact zoals in je data
 
@@ -679,8 +761,8 @@ heat_matrix_full = score_matrix.apply(minmax01, axis=0)
 if "1" not in heat_matrix_full.index:
     raise ValueError("Cluster '1' niet gevonden. Controleer de waarden/typen in de kolom 'Cluster'.")
 
-col_order_by_cl1 = heat_matrix_full.loc["1"].sort_values(ascending=False).index
-top15_cols = col_order_by_cl1[:20]
+col_order_by_cl3 = heat_matrix_full.loc["3"].sort_values(ascending=False).index
+top15_cols = col_order_by_cl3[:20]
 heat_matrix = heat_matrix_full[top15_cols]
 
 # [130] Essent colormap (blauw → wit → bordeaux)
@@ -700,7 +782,7 @@ ax = sns.heatmap(
     linecolor=light_grey
 )
 
-ax.set_title("Cluster Paspoort: Top 15 kenmerken met hoogste score voor cluster 1", fontsize=12, pad=12)
+ax.set_title("Cluster Paspoort: Top 15 kenmerken met hoogste score voor cluster 3", fontsize=12, pad=12)
 ax.set_xlabel("Kenmerken", color=axis_grey)
 ax.set_ylabel("Cluster", color=axis_grey)
 
@@ -715,7 +797,138 @@ plt.show()
 
 # [150] (Optioneel) Toon de top-15 kenmerk-namen expliciet
 top15_labels = pd.Series(top15_cols, name="Top15_kenmerken_op_cluster_1")
-display(top15_labels)
+#display(top15_labels)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Visuele verdeling van de clusters
+
+# COMMAND ----------
+
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+
+# [010] Basis
+df = df_clusters_edm.copy()
+df["Cluster"] = df["Cluster"].astype(str)
+
+# [020] Feature-indeling
+numeric_cols = [
+    c for c in df.columns
+    if c != "Cluster"
+    and df[c].dtype.kind in ("i", "u", "f")
+]
+
+categorical_cols = [
+    c for c in df.columns
+    if c != "Cluster"
+    and c not in numeric_cols
+]
+
+
+# COMMAND ----------
+
+num_total_mean = df[numeric_cols].mean()
+num_total_std  = df[numeric_cols].std(ddof=0).replace(0, np.nan)
+
+num_cluster_mean = df.groupby("Cluster")[numeric_cols].mean()
+num_z = (num_cluster_mean - num_total_mean) / num_total_std
+
+cat_scores = []
+
+for col in categorical_cols:
+    # prevalentie per categorie per cluster
+    p_cluster = (
+        df.groupby(["Cluster", col])
+          .size()
+          .div(df.groupby("Cluster").size(), level=0)
+          .unstack(fill_value=0)
+    )
+
+    # prevalentie totaal
+    p_total = df[col].value_counts(normalize=True)
+
+    # log-lift
+    eps = 1e-9
+    log_lift = np.log((p_cluster + eps) / (p_total + eps))
+
+    # samenvatten: sterkste afwijking per cluster
+    score = log_lift.abs().max(axis=1) * np.sign(log_lift.mean(axis=1))
+    score.name = col
+
+    cat_scores.append(score)
+
+cat_score_df = pd.concat(cat_scores, axis=1)
+
+cluster_profile = pd.concat([num_z, cat_score_df], axis=1)
+
+# Selecteer top 15 onderscheidende kenmerken (globaal)
+top_features = (
+    cluster_profile.abs()
+    .mean(axis=0)
+    .sort_values(ascending=False)
+    .head(15)
+    .index
+)
+
+# COMMAND ----------
+
+cluster_counts = df_clusters_edm['Cluster'].value_counts().sort_index()
+display(cluster_counts)
+
+# COMMAND ----------
+
+def plot_categorical_distribution(df, col):
+    dist = (
+        df.groupby(["Cluster", col])
+          .size()
+          .groupby(level=0, group_keys=False)  # ✅ warning weg
+          .apply(lambda x: x / x.sum())
+          .unstack(fill_value=0)
+    )
+
+    dist.plot(
+        kind="bar",
+        stacked=True,
+        figsize=(8, 4),
+        colormap="tab20"
+    )
+
+    plt.title(f"Verdeling {col} per cluster")
+    plt.ylabel("Aandeel")
+    plt.xlabel("Cluster")
+    plt.legend(title=col, bbox_to_anchor=(1.02, 1), loc="upper left")
+    plt.tight_layout()
+    plt.show()
+
+
+plot_categorical_distribution(df, "EDM_HH_SOCKLAS")
+plot_categorical_distribution(df, "EDM_HH_WONTYP2")
+plot_categorical_distribution(df, "EDM_HH_MBEWUST")
+plot_categorical_distribution(df, "EDM_HH_E_TYPE")
+plot_categorical_distribution(df, "EDM_HH_WON_EIG")
+plot_categorical_distribution(df, "ENERGIEPROFIEL_INGEVULD")
+plot_categorical_distribution(df, "EDM_HH_LVNSFS2")
+plot_categorical_distribution(df, "CONSENT_GEGEVEN")
+plot_categorical_distribution(df, "EDM_HH_KOOPKR")
+plot_categorical_distribution(df, "LOYALTY_KLANT")
+plot_categorical_distribution(df, "AGE")
+plot_categorical_distribution(df, "EDM_HH_LVNSFS2")
+plot_categorical_distribution(df, "EDM_HH_WRKUREN")
+plot_categorical_distribution(df, "EDM_HH_WONWOZW")
+plot_categorical_distribution(df, "EDM_HH_ZP_AANW")
+plot_categorical_distribution(df, "EDM_HH_KWH_VBR")
+plot_categorical_distribution(df, "EDM_HH_GAS_VBR")
+plot_categorical_distribution(df, "EDM_HH_E_TYPE")
+plot_categorical_distribution(df, "EDM_HH_VERD_SB")
+plot_categorical_distribution(df, "EDM_HH_FINTYPE")
+plot_categorical_distribution(df, "EDM_HH_PA_AUTO")
+plot_categorical_distribution(df, "EDM_HH_VAK_ACC")
+
 
 # COMMAND ----------
 
