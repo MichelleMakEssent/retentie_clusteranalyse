@@ -602,7 +602,30 @@ df_clusters.head()
 
 # COMMAND ----------
 
-# DBTITLE 1,visualisation of characteristics
+# MAGIC %md
+# MAGIC
+
+# COMMAND ----------
+
+# Alleen object kolommen (strings / categorieën)
+cat_cols = df_clusters.select_dtypes(include='object').columns.tolist()
+
+# Excl. ID's, datums en Cluster zelf
+exclude_cols = ['CUSTOMERNUMBER','BRANDID','SLEUTEL','LOAD_DTS','PEILDATUM',
+                'SOCIODEMO_SEGMENTATIE_DATE','DATALAKE_FILENAME','FILE_ROW_NUMBER',
+                'RECORD_SOURCE','Cluster']
+
+cat_cols = [c for c in cat_cols if c not in exclude_cols]
+print(f"Aantal categorische kolommen: {len(cat_cols)}")
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Vergelijken & onderscheiden
+
+# COMMAND ----------
+
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -719,7 +742,7 @@ essent_cmap = LinearSegmentedColormap.from_list(
 )
 
 # [140] Plot
-plt.figure(figsize=(max(20, len(heat_matrix.columns)*0.6), 4 + 0.4*len(heat_matrix.index)))
+plt.figure(figsize=(max(25, len(heat_matrix.columns)*0.6), 4 + 0.4*len(heat_matrix.index)))
 
 ax = sns.heatmap(
     heat_matrix,
@@ -729,7 +752,7 @@ ax = sns.heatmap(
     linecolor=light_grey
 )
 
-ax.set_title("Cluster Paspoort: Top 15 kenmerken met hoogste score voor cluster 3", fontsize=12, pad=12)
+ax.set_title("Cluster Paspoort: Top 25 kenmerken met hoogste score voor cluster 2 (Paulien)", fontsize=12, pad=12)
 ax.set_xlabel("Kenmerken", color=axis_grey)
 ax.set_ylabel("Cluster", color=axis_grey)
 
@@ -748,112 +771,84 @@ top15_labels = pd.Series(top15_cols, name="Top15_kenmerken_op_cluster_1")
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC # Visuele verdeling van de clusters
+# [1] Basisinstellingen
+CLUSTER_ID = '2'
+MIN_DOMINANT_SHARE = 0.6   # Alleen kenmerken met >=60% dominante waarde
+
+# [2] Filter cluster
+df_cluster = df_clusters[df_clusters["Cluster"] == CLUSTER_ID].copy()
+
+n_cluster = len(df_cluster)
+
+print(f"Aantal klanten in cluster {CLUSTER_ID}: {n_cluster}")
 
 # COMMAND ----------
 
-import pandas as pd
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
+# [3] Kolomtypes bepalen
+categorical_cols = df_cluster.select_dtypes(include=["object", "category", "bool"]).columns.tolist()
+numeric_cols = df_cluster.select_dtypes(include=["number"]).columns.tolist()
 
-# [010] Basis
-df = df_clusters.copy()
-df["Cluster"] = df["Cluster"].astype(str)
+# Kolommen uitsluiten die je niet wilt analyseren
+EXCLUDE_COLS = {
+    "CUSTOMERNUMBER", "Cluster", "PC1", "PC2",
+    "EDM_X_COORD_RD", "EDM_Y_COORD_RD", "EDM_LONGITUDE", "EDM_LATITUDE", 'RECORD_SOURCE','SOCIODEMO_SEGMENTATIE_DATE', 'PEILDATUM',
+}
 
-# [020] Feature-indeling
-numeric_cols = [
-    c for c in df.columns
-    if c != "Cluster"
-    and df[c].dtype.kind in ("i", "u", "f")
-]
+categorical_cols = [c for c in categorical_cols if c not in EXCLUDE_COLS]
+numeric_cols = [c for c in numeric_cols if c not in EXCLUDE_COLS]
 
-categorical_cols = [
-    c for c in df.columns
-    if c != "Cluster"
-    and c not in numeric_cols
-]
+# COMMAND ----------
+
+def is_yes_no_column(series):
+    """
+    Geeft True terug als de kolom alleen Ja/Nee-achtige waarden bevat.
+    """
+    allowed_values = {"ja", "nee", "true", "false"}
+    
+    unique_values = (
+        series
+        .dropna()
+        .astype(str)
+        .str.lower()
+        .str.strip()
+        .unique()
+    )
+    
+    return len(unique_values) > 0 and set(unique_values).issubset(allowed_values)
 
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC **Leeftijd & levensfase (sterk onderscheidend)**
-# MAGIC Dominante leeftijdsgroepen
-# MAGIC - 55 jaar en ouder: ± 60–65% van het cluster
-# MAGIC - 65+: ± 35–40%
-# MAGIC - <40 jaar: < 10%
-# MAGIC
-# MAGIC _➡️ Dit is duidelijk een ouder cluster, met veel (pre-)pensioenleeftijden._
-# MAGIC Levensfase / huishouden
-# MAGIC - Paren zonder kinderen: ± 40%
-# MAGIC - Alleenstaanden (middelbaar/oud): ± 30%
-# MAGIC - Gezinnen met (jonge of oudere) kinderen: ± 30%
-# MAGIC
-# MAGIC _➡️ Oververtegenwoordiging van kinderloze huishoudens en alleenstaanden._
-# MAGIC
-# MAGIC **Woning & woonomgeving**
-# MAGIC Woningbezit
-# MAGIC - Koopwoning: ± 70–75%
-# MAGIC - Huurwoning: ± 25–30%
-# MAGIC
-# MAGIC Woningtype
-# MAGIC - Rijtjeshuis / twee-onder-een-kap / vrijstaand: ± 65%
-# MAGIC - Appartement / etagewoning: ± 35%
-# MAGIC
-# MAGIC WOZ-waarde (indicatief)
-# MAGIC - €250k – €450k: grootste groep (± 50%)
-# MAGIC - > €500k: ± 20–25%
-# MAGIC - < €250k: ± 25%
-# MAGIC
-# MAGIC _➡️ Overwegend koopwoningen met middelhoge tot hoge waarde._
-# MAGIC
-# MAGIC **Energie & verduurzaming**
-# MAGIC Zonnepanelen
-# MAGIC - Zonnepanelen aanwezig: ± 60–65%
-# MAGIC - Geen zonnepanelen / onbekend: ± 35–40%
-# MAGIC
-# MAGIC Energieverbruik
-# MAGIC - Elektriciteit: vooral 2.500 – 3.750 kWh
-# MAGIC - Gas: vaak 1.100 – 1.600 m³
-# MAGIC
-# MAGIC Veel huishoudens vallen in:
-# MAGIC - Luxe grootverbruikers
-# MAGIC - Modale gezinsverbruikers
-# MAGIC - Gedwongen kleinverbruikers
-# MAGIC
-# MAGIC _➡️ Gemiddeld tot hoger verbruik, passend bij grotere koopwoningen._
-# MAGIC
-# MAGIC **Financieel profiel**
-# MAGIC Inkomen
-# MAGIC - €70k – €100k: grootste groep (± 35–40%)
-# MAGIC - > €100k: ± 25–30%
-# MAGIC - < €50k: ± 15–20%
-# MAGIC
-# MAGIC Vermogen
-# MAGIC - Veel klanten in vermogensdeciel 7–10
-# MAGIC
-# MAGIC _➡️ Financieel relatief sterk en behoudend._
-# MAGIC
-# MAGIC **Gedrag & houding (samenvattend)**
-# MAGIC Segmentlabels die vaak voorkomen
-# MAGIC - Actieve Vijftigplussers
-# MAGIC - Geïnteresseerde Conservatieven
-# MAGIC - Traditionele Dorpelingen
-# MAGIC - Behulpzame / Behoudende Weldoeners
-# MAGIC
-# MAGIC Kenmerkend gedrag
-# MAGIC - Minder online/extreem digitaal dan jongere clusters
-# MAGIC - Loyaler, minder switch-gericht
-# MAGIC - Minder impulsief, meer behouden
-# MAGIC - Relatief hoge retentie / contractduur
-# MAGIC
-# MAGIC
-# MAGIC **Samenvattende clusterbeschrijving**
-# MAGIC
-# MAGIC Cluster 3 bestaat voornamelijk uit oudere, financieel stabiele huishoudens, vaak zonder thuiswonende kinderen, die in koopwoningen wonen met een middelhoge tot hoge woningwaarde. Ze hebben gemiddeld tot hoog energieverbruik, relatief vaak zonnepanelen en een behoudend financieel en consumptieprofiel. Dit cluster is minder prijs- en switch-gedreven, maar wel gevoelig voor betrouwbaarheid, continuïteit en duidelijke waardeproposities rond comfort en duurzaamheid.
+dominant_categorical_features = []
+
+for col in categorical_cols:
+    # sla Ja/Nee-kolommen over
+    if is_yes_no_column(df_cluster[col]):
+        continue
+    
+    vc = df_cluster[col].value_counts(dropna=True)
+    
+    if vc.empty:
+        continue
+    
+    top_value = vc.index[0]
+    top_count = vc.iloc[0]
+    top_share = top_count / n_cluster
+    
+    if top_share >= MIN_DOMINANT_SHARE:
+        dominant_categorical_features.append({
+            "kolom": col,
+            "dominante_waarde": top_value,
+            "aantal": int(top_count),
+            "percentage": round(100 * top_share, 1)
+        })
+
+df_cat_summary = (
+    pd.DataFrame(dominant_categorical_features)
+      .sort_values("percentage", ascending=False)
+)
+
+df_cat_summary.head(20)
 
 # COMMAND ----------
 
@@ -877,9 +872,84 @@ def plot_categorical_distribution(df, col):
 categorical_columns = [
     "EDM_HH_SOCKLAS", "EDM_HH_WONTYP2", "EDM_HH_MBEWUST", "EDM_HH_E_TYPE", "EDM_HH_WON_EIG",
     "ENERGIEPROFIEL_INGEVULD", "EDM_HH_LVNSFS2", "CONSENT_GEGEVEN", "EDM_HH_KOOPKR", "LOYALTY_KLANT",
-    "AGE", "EDM_HH_LVNSFS2", "EDM_HH_WRKUREN", "EDM_HH_WONWOZW", "EDM_HH_ZP_AANW", "EDM_HH_KWH_VBR",
+    "EDM_HH_STADSVW", "EDM_HH_ZP_AANW", "EDM_HH_VERD_SB", "EDM_HH_RISAVRS", "EDM_HH_LVNSFS2", "EDM_HH_LFT_KND", 'Klantduur', "EDM_HH_WRKUREN", "EDM_HH_WONWOZW", "EDM_HH_ZP_AANW", "EDM_HH_KWH_VBR",
     "EDM_HH_GAS_VBR", "EDM_HH_E_TYPE", "EDM_HH_VERD_SB", "EDM_HH_FINTYPE", "EDM_HH_PA_AUTO", "EDM_HH_VAK_ACC"
 ]
 
 for col in categorical_columns:
     plot_categorical_distribution(df_clusters, col)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ##  1. Waarin onderscheidt Cluster 3 zich duidelijk?
+# MAGIC
+# MAGIC **Demografie & huishouden**
+# MAGIC
+# MAGIC - **Leeftijd:** Overwegend 55–80 jaar >70% is ouder dan 55 jaar
+# MAGIC - **Huishoudgrootte:** Vooral 1–2 persoons huishoudens → >80% bestaat uit paren zonder kinderen of alleenstaanden
+# MAGIC - **Kinderen:** Nauwelijks (meer) kinderen in huis → >90% geen thuiswonende kinderen
+# MAGIC
+# MAGIC **Woning & woonomgeving**
+# MAGIC - Woningbezit: Sterk koopwoning-georiënteerd → 80–90% koopwoning
+# MAGIC - WOZ-waarde: Relatief hoog → ±70% heeft een WOZ-waarde > €300.000
+# MAGIC - Woningtype: Rijtjeshuis, twee-onder-een-kap of vrijstaand
+# MAGIC - Bouwjaar: Vaak 1960–2000
+# MAGIC - Stadsverwarming: Nauwelijks aanwezig → >85% geen stadsverwarming
+# MAGIC
+# MAGIC **Energie & duurzaamheid**
+# MAGIC - Energieverbruik: Bovengemiddeld → ±60–70% zit boven 2.500 kWh stroom
+# MAGIC → ±50–60% boven 1.200 m³ ga
+# MAGIC - Zonnepanelen: Relatief vaak aanwezig → 30–60% heeft zonnepanelen
+# MAGIC
+# MAGIC **Financieel gedrag**
+# MAGIC - Risicoprofiel: Zeer duidelijk risicomijdend → >80–90% risicomijdend
+# MAGIC - Sparen vs beleggen: → >80% spaart (alleen of dominant) → <20% actief beleggend
+# MAGIC - Inkomen: Vaak midden tot hoger segment→ Groot aandeel tussen €50.000 – €120.000
+# MAGIC
+# MAGIC **Media & gedrag**
+# MAGIC - Mediavoorkeur: Papieren/digitaal dagblad → 60–80%
+# MAGIC - Publieke & commerciële tv
+# MAGIC - Weinig sociale media → <25–30% actief
+# MAGIC
+# MAGIC
+# MAGIC **Verhuisgedrag: Zeer laag**
+# MAGIC - → <15% verhuisd in recente periode
+# MAGIC
+# MAGIC **Maatschappelijke betrokkenheid**
+# MAGIC
+# MAGIC - Goede doelen: 1–5 goede doelen per huishouden
+# MAGIC - Donatiebedragen meestal €25–€500 per jaar
+# MAGIC - → 60%+ doneert aan minimaal één goed doel
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2. Korte kernbeschrijving van Paulien
+# MAGIC Cluster 3 bestaat uit oudere, financieel stabiele huishoudens (vaak paren zonder kinderen) in koopwoningen met een relatief hoge woningwaarde. Ze zijn sterk risicomijdend, sparen meer dan ze beleggen, verbruiken bovengemiddeld energie, zijn weinig verhuisbereid en hebben een traditionele mediavoorkeur. Digitale en sociale media spelen een beperkte rol; zekerheid, stabiliteit en behoudend gedrag staan centraal.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3. Onderscheidende kenmerken
+# MAGIC
+# MAGIC - Leeftijd hoofdzakelijk 55–80 jaar
+# MAGIC - 1–2 persoons huishoudens
+# MAGIC - Nauwelijks thuiswonende kinderen
+# MAGIC - 80–90% koopwoning
+# MAGIC - WOZ-waarde vaak > €300.000
+# MAGIC - Woningtype: rijtjeshuis / twee-onder-een-kap / vrijstaand
+# MAGIC - Bouwjaar woning meestal 1960–2000
+# MAGIC - Geen stadsverwarming (85%+)
+# MAGIC - Bovengemiddeld stroom- en gasverbruik
+# MAGIC - 30–60% zonnepanelen
+# MAGIC - Zeer risicomijdend financieel profiel
+# MAGIC - Sparen dominant, beleggen beperkt
+# MAGIC - Inkomen vaak €50.000–€120.000
+# MAGIC - Weinig verhuisbewegingen
+# MAGIC - Voorkeur voor dagblad en traditionele tv
+# MAGIC - Beperkt gebruik van sociale media
+# MAGIC - Donateur aan 1–5 goede doelen
+# MAGIC - Donatiebedragen meestal €25–€500 p.j.
+# MAGIC - Sterke focus op zekerheid en stabiliteit
+# MAGIC - Relatief lange klantduur / honkvast gedrag
