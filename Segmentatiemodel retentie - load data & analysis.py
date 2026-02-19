@@ -38,8 +38,33 @@ SELECT * FROM `snowflake_prd_prototype_data_analysts`.`playground`.BASETABLE_RET
 
 # COMMAND ----------
 
+current_date = datetime.now().strftime('%d%m%y')
+df.to_parquet(
+    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/base_df_{current_date}.parquet',
+    index=False
+)
+
+# COMMAND ----------
+
+# Check for duplicate rows
+duplicate_rows_count = df.duplicated().sum()
+print("Duplicate rows count:", duplicate_rows_count)
+
+# Display duplicate rows if any
+if duplicate_rows_count > 0:
+    display(df[df.duplicated()])
+
+# Drop duplicate rows
+df = df.drop_duplicates()
+
+# COMMAND ----------
+
 # DBTITLE 1,head of df
 df.head()
+
+# COMMAND ----------
+
+len(df)
 
 # COMMAND ----------
 
@@ -54,15 +79,20 @@ print(columns_list)
 
 # COMMAND ----------
 
+null_age_count = df['AGE'].isnull().sum()
+print("Number of rows with AGE null:", null_age_count)
+
+# COMMAND ----------
+
 # DBTITLE 1,preprocessing
 # Impute 'AGE' with mean if it is null
 df['AGE'] = df['AGE'].astype(float).fillna(df['AGE'].astype(float).mean())
 
 # Keep only relevant columns for analysis
-columns_to_keep = ['CUSTOMERNUMBER', 'BRANDID', 'AANTAL_MAANDEN_KLANT', 'KANAAL', 'HOEVAAK_KLANT_GEWEEST', 'AGE', 
-                   'TERUGLEVERING_JA', 'LIVE_CONTACTS', 'ENERGIEPROFIEL_INGEVULD', 'ONLINE_VISITS', 'CONSENT_GEGEVEN', 'LOYALTY_KLANT', 'ORIENTATIE_SCORE', 'DAYS_RETENTIE_CONTRACT_GETEKEND']
+#columns_to_keep = ['CUSTOMERNUMBER', 'BRANDID', 'AANTAL_MAANDEN_KLANT', 'KANAAL', 'HOEVAAK_KLANT_GEWEEST', 'AGE', 
+                #    'TERUGLEVERING_JA', 'LIVE_CONTACTS', 'ENERGIEPROFIEL_INGEVULD', 'ONLINE_VISITS', 'CONSENT_GEGEVEN', 'LOYALTY_KLANT', 'ORIENTATIE_SCORE', 'DAYS_RETENTIE_CONTRACT_GETEKEND']
 
-df_segm = df[columns_to_keep]
+df_segm = df.copy() #[columns_to_keep]
 
 def preprocess_categorical(df, categorical_columns):
     """
@@ -91,6 +121,18 @@ processed_df.head()
 
 # COMMAND ----------
 
+#Check of alle klantnrs in originele df ook in processed df zitten 
+df["CUSTOMERNUMBER"].isin(processed_df["CUSTOMERNUMBER"]).all()
+
+
+# COMMAND ----------
+
+display(type(df), "-")
+
+display(type(processed_df))
+
+# COMMAND ----------
+
 # DBTITLE 1,describe df
 processed_df.describe()
 
@@ -106,7 +148,6 @@ for col in ['CUSTOMERNUMBER', 'AANTAL_MAANDEN_KLANT', 'KANAAL', 'HOEVAAK_KLANT_G
 # COMMAND ----------
 
 # DBTITLE 1,preprocessed df to parquet
-
 current_date = datetime.now().strftime('%d%m%y')
 processed_df.to_parquet(
     f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/processed_df_{current_date}.parquet',
@@ -126,7 +167,7 @@ print(processed_df.dtypes)
 # COMMAND ----------
 
 #ik moet hier alsnog handmatig de datum inzetten, checken of het mogelijk is om die ook te automatiseren? 
-df_processed = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/processed_df_160226.parquet',)
+df_processed = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/processed_df_190226.parquet',)
 df_processed.head(15)
 
 # COMMAND ----------
@@ -145,25 +186,6 @@ color_map={'Essent':essent_bordeaux,
            'EnergieDirect.nl':ed_main,
            'ED':ed_main,
            '050':ed_main}
-
-# COMMAND ----------
-
-numeric_cols = [
-    'AANTAL_MAANDEN_KLANT',
-    'HOEVAAK_KLANT_GEWEEST',
-    'LIVE_CONTACTS',
-    'ONLINE_VISITS',
-    'ENERGIEPROFIEL_INGEVULD',
-    'TERUGLEVERING_JA',
-    'CONSENT_GEGEVEN',
-    'LOYALTY_KLANT',
-    'DAYS_RETENTIE_CONTRACT_GETEKEND'
-]
-
-for col in numeric_cols:
-    df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
-
-display(df_processed[numeric_cols].dtypes)
 
 # COMMAND ----------
 
@@ -282,7 +304,9 @@ min_max_df
 
 # COMMAND ----------
 
-df_processed.head()
+#hoeveel klanten hebben getekend voor retentieperiode 'officiele' start 
+count_negative_days = (df_processed['DAYS_RETENTIE_CONTRACT_GETEKEND'] < 0).sum()
+print("Number of rows with DAYS_RETENTIE_CONTRACT_GETEKEND < 0:", count_negative_days)
 
 # COMMAND ----------
 
@@ -383,7 +407,7 @@ from sklearn.preprocessing import StandardScaler
 features = [
  'HOEVAAK_KLANT_GEWEEST',
  'AANTAL_MAANDEN_KLANT',
- 'AGE',
+ #'AGE',
  'TERUGLEVERING_JA',
  'LIVE_CONTACTS',
  'ENERGIEPROFIEL_INGEVULD',
@@ -473,11 +497,6 @@ display(cluster_personas)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC # 7. Cluster Info
-
-# COMMAND ----------
-
 cluster_counts = df_processed['Cluster'].value_counts().sort_index()
 
 numbers = cluster_counts.tolist()
@@ -511,28 +530,48 @@ plt.show()
 
 # COMMAND ----------
 
-df_clusters = df_processed
-current_date = datetime.now().strftime('%d%m%y')
+# MAGIC %md
+# MAGIC !! CLUSTER 2 IS PAULIEN
 
-df_clusters.to_parquet(
-    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_clusters_{current_date}.parquet',
-    index=False
-)
+# COMMAND ----------
+
+import matplotlib.pyplot as plt
+
+cluster_counts = df_processed['Cluster'].value_counts().sort_index()
+
+plt.figure(figsize=(6,4))
+cluster_counts.plot(kind='bar', color='#5FB623', edgecolor='black')
+plt.title('Verdeling van de Clusters (aantallen)')
+plt.xlabel('Cluster')
+plt.ylabel('Aantal')
+plt.xticks(rotation=0)
+plt.tight_layout()
+plt.show()
 
 # COMMAND ----------
 
 current_date = datetime.now().strftime('%d%m%y')
 
-#originele tabel met edm data om te joinen 
-df_edm = spark.sql('''
-SELECT * FROM `snowflake_prd_prototype_data_analysts`.`playground`.BASETABLE_RETENTION_SEGMENTATION_V2_28022026 
-''').toPandas()
-
 #naar parquet schrijven om makkelijker op te halen zonder alle code te hoeven runnen 
-df_edm.to_parquet(
-    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_edm_{current_date}.parquet',
+df_processed.to_parquet(
+    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/total_clusters_df_{current_date}.parquet',
     index=False
 )
+
+# COMMAND ----------
+
+# ALLEEN RUNNEN ALS JE WILT EXPORTEREN NAAR CSV - DUURT LANG! 
+
+#moet in aparte csv's want 1 is te groot 
+current_date = datetime.now().strftime('%d%m%y')
+
+for cluster_label, cluster_df in df_processed.groupby('Cluster'):
+    cluster_df.to_csv(f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_clusters_{current_date}_cluster_{cluster_label}.csv', index=False)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # 7. Cluster info
 
 # COMMAND ----------
 
@@ -558,99 +597,8 @@ from datetime import datetime
 # COMMAND ----------
 
 #inlezen van de cluster dataset
-df_clusters = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_clusters_160226.parquet',)
+df_clusters = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/total_clusters_df_190226.parquet',)
 df_clusters.head()
-
-# COMMAND ----------
-
-#inlezen vanaf de edm dataset
-df_edm = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_edm_160226.parquet',)
-df_edm.head()
-
-# COMMAND ----------
-
-len(df_edm), len(df_clusters)
-
-# COMMAND ----------
-
-df_clusters['CUSTOMERNUMBER'] = (
-    df_clusters['CUSTOMERNUMBER']
-        .astype("string")
-        .str.zfill(10)
-)
-
-df_edm['CUSTOMERNUMBER'] = (
-    df_edm['CUSTOMERNUMBER']
-        .astype("string")
-        .str.zfill(10)
-)
-
-#df_clusters['CUSTOMERNUMBER'] = df_clusters['CUSTOMERNUMBER'].astype("string")
-
-
-
-# COMMAND ----------
-
-#df_clusters.head()
-df_edm.head()
-
-# COMMAND ----------
-
-df_clusters.head()
-
-# COMMAND ----------
-
-dup_cols = [col for col in df_edm.columns if col in df_clusters.columns and col not in ['CUSTOMERNUMBER', 'BRANDID']] #kolommen die in beide bestaan droppen in 1
-df_edm_nodup = df_edm.drop(columns=dup_cols, errors='ignore')
-
-df_clusters_edm = df_clusters.merge(
-    df_edm_nodup,
-    on=['CUSTOMERNUMBER', 'BRANDID'],
-    how='left'
-)
-
-# COMMAND ----------
-
-len(df_clusters_edm)
-
-# COMMAND ----------
-
-df_clusters_edm.head()
-
-# COMMAND ----------
-
-df_clusters['CUSTOMERNUMBER'] = df_clusters['CUSTOMERNUMBER'].astype(str)
-df_clusters['BRANDID'] = df_clusters['BRANDID'].astype(str)
-#df_clusters['SLEUTEL'] = df_clusters['SLEUTEL'].astype(str)
-df_edm['CUSTOMERNUMBER'] = df_edm['CUSTOMERNUMBER'].astype(str)
-df_edm['BRANDID'] = df_edm['BRANDID'].astype(str)
-#df_edm['SLEUTEL'] = df_edm['SLEUTEL'].astype(str)
-
-join_keys = ['CUSTOMERNUMBER', 'BRANDID']
-dup_cols = [col for col in df_clusters.columns if col in df_edm.columns and col not in join_keys]
-df_edm_nodup = df_edm.drop(columns=dup_cols, errors='ignore')
-
-df_clusters_edm = df_clusters.merge(df_edm_nodup, on=join_keys, how='left')
-
-# COMMAND ----------
-
-len(df_clusters_edm)
-
-# COMMAND ----------
-
-# DBTITLE 1,Cell 48
-current_date = datetime.now().strftime('%d%m%y')
-
-#naar parquet schrijven om makkelijker op te halen zonder alle code te hoeven runnen 
-df_clusters_edm.to_parquet(
-    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_clusters_edm_{current_date}.parquet',
-    index=False
-)
-
-# COMMAND ----------
-
-# DBTITLE 1,Optimize DataFrame before saving
-
 
 # COMMAND ----------
 
@@ -679,7 +627,6 @@ feature_cols = [
     'ENERGIEPROFIEL_INGEVULD',
     # 'ONLINE_VISITS',
     'CONSENT_GEGEVEN','LOYALTY_KLANT', 'EDM_HH_KOOPKR','EDM_HH_LVNSFS2','EDM_HH_SOCKLAS','EDM_HH_WONTYP2','EDM_HH_WON_EIG','EDM_HH_E_TYPE','EDM_HH_MBEWUST'
-    
     # 'ORIENTATIE_SCORE','DAYS_RETENTIE_CONTRACT_GETEKEND',
     # 'EDM_PROV','EDM_HH_4GEOTYP','EDM_HH_LVNSFS2','EDM_HH_OPLEID2','EDM_HH_FUNCTIE',
     # 'EDM_HH_WONTYP2','EDM_HH_WON_EIG','EDM_HH_ZP_AANW','EDM_HH_E_TYPE','EDM_HH_BS_SRT',
@@ -689,7 +636,7 @@ feature_cols = [
 cluster_col = 'Cluster'  # let op: exact zoals in je data
 
 # [030] Data selecteren
-df_features = df_clusters_edm[feature_cols + [cluster_col]].copy()
+df_features = df_clusters[feature_cols + [cluster_col]].copy()
 df_features[cluster_col] = df_features[cluster_col].astype(str)  # prettige labels
 
 # [040] Splits numeriek vs categorisch
@@ -758,10 +705,10 @@ def minmax01(s: pd.Series) -> pd.Series:
 heat_matrix_full = score_matrix.apply(minmax01, axis=0)
 
 # [120] Selectie: sorteer o.b.v. cluster '1' en pak top 15 kolommen
-if "1" not in heat_matrix_full.index:
+if "2" not in heat_matrix_full.index:
     raise ValueError("Cluster '1' niet gevonden. Controleer de waarden/typen in de kolom 'Cluster'.")
 
-col_order_by_cl3 = heat_matrix_full.loc["3"].sort_values(ascending=False).index
+col_order_by_cl3 = heat_matrix_full.loc["2"].sort_values(ascending=False).index
 top15_cols = col_order_by_cl3[:20]
 heat_matrix = heat_matrix_full[top15_cols]
 
@@ -813,7 +760,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 
 # [010] Basis
-df = df_clusters_edm.copy()
+df = df_clusters.copy()
 df["Cluster"] = df["Cluster"].astype(str)
 
 # [020] Feature-indeling
@@ -832,273 +779,107 @@ categorical_cols = [
 
 # COMMAND ----------
 
-num_total_mean = df[numeric_cols].mean()
-num_total_std  = df[numeric_cols].std(ddof=0).replace(0, np.nan)
-
-num_cluster_mean = df.groupby("Cluster")[numeric_cols].mean()
-num_z = (num_cluster_mean - num_total_mean) / num_total_std
-
-cat_scores = []
-
-for col in categorical_cols:
-    # prevalentie per categorie per cluster
-    p_cluster = (
-        df.groupby(["Cluster", col])
-          .size()
-          .div(df.groupby("Cluster").size(), level=0)
-          .unstack(fill_value=0)
-    )
-
-    # prevalentie totaal
-    p_total = df[col].value_counts(normalize=True)
-
-    # log-lift
-    eps = 1e-9
-    log_lift = np.log((p_cluster + eps) / (p_total + eps))
-
-    # samenvatten: sterkste afwijking per cluster
-    score = log_lift.abs().max(axis=1) * np.sign(log_lift.mean(axis=1))
-    score.name = col
-
-    cat_scores.append(score)
-
-cat_score_df = pd.concat(cat_scores, axis=1)
-
-cluster_profile = pd.concat([num_z, cat_score_df], axis=1)
-
-# Selecteer top 15 onderscheidende kenmerken (globaal)
-top_features = (
-    cluster_profile.abs()
-    .mean(axis=0)
-    .sort_values(ascending=False)
-    .head(15)
-    .index
-)
-
-# COMMAND ----------
-
-cluster_counts = df_clusters_edm['Cluster'].value_counts().sort_index()
-display(cluster_counts)
+# MAGIC %md
+# MAGIC **Leeftijd & levensfase (sterk onderscheidend)**
+# MAGIC Dominante leeftijdsgroepen
+# MAGIC - 55 jaar en ouder: ± 60–65% van het cluster
+# MAGIC - 65+: ± 35–40%
+# MAGIC - <40 jaar: < 10%
+# MAGIC
+# MAGIC _➡️ Dit is duidelijk een ouder cluster, met veel (pre-)pensioenleeftijden._
+# MAGIC Levensfase / huishouden
+# MAGIC - Paren zonder kinderen: ± 40%
+# MAGIC - Alleenstaanden (middelbaar/oud): ± 30%
+# MAGIC - Gezinnen met (jonge of oudere) kinderen: ± 30%
+# MAGIC
+# MAGIC _➡️ Oververtegenwoordiging van kinderloze huishoudens en alleenstaanden._
+# MAGIC
+# MAGIC **Woning & woonomgeving**
+# MAGIC Woningbezit
+# MAGIC - Koopwoning: ± 70–75%
+# MAGIC - Huurwoning: ± 25–30%
+# MAGIC
+# MAGIC Woningtype
+# MAGIC - Rijtjeshuis / twee-onder-een-kap / vrijstaand: ± 65%
+# MAGIC - Appartement / etagewoning: ± 35%
+# MAGIC
+# MAGIC WOZ-waarde (indicatief)
+# MAGIC - €250k – €450k: grootste groep (± 50%)
+# MAGIC - > €500k: ± 20–25%
+# MAGIC - < €250k: ± 25%
+# MAGIC
+# MAGIC _➡️ Overwegend koopwoningen met middelhoge tot hoge waarde._
+# MAGIC
+# MAGIC **Energie & verduurzaming**
+# MAGIC Zonnepanelen
+# MAGIC - Zonnepanelen aanwezig: ± 60–65%
+# MAGIC - Geen zonnepanelen / onbekend: ± 35–40%
+# MAGIC
+# MAGIC Energieverbruik
+# MAGIC - Elektriciteit: vooral 2.500 – 3.750 kWh
+# MAGIC - Gas: vaak 1.100 – 1.600 m³
+# MAGIC
+# MAGIC Veel huishoudens vallen in:
+# MAGIC - Luxe grootverbruikers
+# MAGIC - Modale gezinsverbruikers
+# MAGIC - Gedwongen kleinverbruikers
+# MAGIC
+# MAGIC _➡️ Gemiddeld tot hoger verbruik, passend bij grotere koopwoningen._
+# MAGIC
+# MAGIC **Financieel profiel**
+# MAGIC Inkomen
+# MAGIC - €70k – €100k: grootste groep (± 35–40%)
+# MAGIC - > €100k: ± 25–30%
+# MAGIC - < €50k: ± 15–20%
+# MAGIC
+# MAGIC Vermogen
+# MAGIC - Veel klanten in vermogensdeciel 7–10
+# MAGIC
+# MAGIC _➡️ Financieel relatief sterk en behoudend._
+# MAGIC
+# MAGIC **Gedrag & houding (samenvattend)**
+# MAGIC Segmentlabels die vaak voorkomen
+# MAGIC - Actieve Vijftigplussers
+# MAGIC - Geïnteresseerde Conservatieven
+# MAGIC - Traditionele Dorpelingen
+# MAGIC - Behulpzame / Behoudende Weldoeners
+# MAGIC
+# MAGIC Kenmerkend gedrag
+# MAGIC - Minder online/extreem digitaal dan jongere clusters
+# MAGIC - Loyaler, minder switch-gericht
+# MAGIC - Minder impulsief, meer behouden
+# MAGIC - Relatief hoge retentie / contractduur
+# MAGIC
+# MAGIC
+# MAGIC **Samenvattende clusterbeschrijving**
+# MAGIC
+# MAGIC Cluster 3 bestaat voornamelijk uit oudere, financieel stabiele huishoudens, vaak zonder thuiswonende kinderen, die in koopwoningen wonen met een middelhoge tot hoge woningwaarde. Ze hebben gemiddeld tot hoog energieverbruik, relatief vaak zonnepanelen en een behoudend financieel en consumptieprofiel. Dit cluster is minder prijs- en switch-gedreven, maar wel gevoelig voor betrouwbaarheid, continuïteit en duidelijke waardeproposities rond comfort en duurzaamheid.
 
 # COMMAND ----------
 
 def plot_categorical_distribution(df, col):
-    dist = (
-        df.groupby(["Cluster", col])
-          .size()
-          .groupby(level=0, group_keys=False)  # ✅ warning weg
-          .apply(lambda x: x / x.sum())
-          .unstack(fill_value=0)
-    )
-
+    df_plot = df.copy()
+    df_plot["Cluster"] = df_plot["Cluster"].astype(str)
+    dist = pd.crosstab(df_plot["Cluster"], df_plot[col], normalize='index')
     dist.plot(
         kind="bar",
         stacked=True,
         figsize=(8, 4),
         colormap="tab20"
     )
-
-    plt.title(f"Verdeling {col} per cluster")
+    plt.title(f"Verdeling {col} per cluster\n(Let vooral op Cluster 2)", fontsize=13)
     plt.ylabel("Aandeel")
     plt.xlabel("Cluster")
     plt.legend(title=col, bbox_to_anchor=(1.02, 1), loc="upper left")
     plt.tight_layout()
     plt.show()
 
+categorical_columns = [
+    "EDM_HH_SOCKLAS", "EDM_HH_WONTYP2", "EDM_HH_MBEWUST", "EDM_HH_E_TYPE", "EDM_HH_WON_EIG",
+    "ENERGIEPROFIEL_INGEVULD", "EDM_HH_LVNSFS2", "CONSENT_GEGEVEN", "EDM_HH_KOOPKR", "LOYALTY_KLANT",
+    "AGE", "EDM_HH_LVNSFS2", "EDM_HH_WRKUREN", "EDM_HH_WONWOZW", "EDM_HH_ZP_AANW", "EDM_HH_KWH_VBR",
+    "EDM_HH_GAS_VBR", "EDM_HH_E_TYPE", "EDM_HH_VERD_SB", "EDM_HH_FINTYPE", "EDM_HH_PA_AUTO", "EDM_HH_VAK_ACC"
+]
 
-plot_categorical_distribution(df, "EDM_HH_SOCKLAS")
-plot_categorical_distribution(df, "EDM_HH_WONTYP2")
-plot_categorical_distribution(df, "EDM_HH_MBEWUST")
-plot_categorical_distribution(df, "EDM_HH_E_TYPE")
-plot_categorical_distribution(df, "EDM_HH_WON_EIG")
-plot_categorical_distribution(df, "ENERGIEPROFIEL_INGEVULD")
-plot_categorical_distribution(df, "EDM_HH_LVNSFS2")
-plot_categorical_distribution(df, "CONSENT_GEGEVEN")
-plot_categorical_distribution(df, "EDM_HH_KOOPKR")
-plot_categorical_distribution(df, "LOYALTY_KLANT")
-plot_categorical_distribution(df, "AGE")
-plot_categorical_distribution(df, "EDM_HH_LVNSFS2")
-plot_categorical_distribution(df, "EDM_HH_WRKUREN")
-plot_categorical_distribution(df, "EDM_HH_WONWOZW")
-plot_categorical_distribution(df, "EDM_HH_ZP_AANW")
-plot_categorical_distribution(df, "EDM_HH_KWH_VBR")
-plot_categorical_distribution(df, "EDM_HH_GAS_VBR")
-plot_categorical_distribution(df, "EDM_HH_E_TYPE")
-plot_categorical_distribution(df, "EDM_HH_VERD_SB")
-plot_categorical_distribution(df, "EDM_HH_FINTYPE")
-plot_categorical_distribution(df, "EDM_HH_PA_AUTO")
-plot_categorical_distribution(df, "EDM_HH_VAK_ACC")
-
-
-# COMMAND ----------
-
-# DBTITLE 1,code Roel?
-#visualisatie code van Roel
-
-# Bereken de gemiddelde waarde per feature per cluster
-# We pakken de getransformeerde features om verschillen goed te zien
-cluster_profiles = df_clusters_edm.groupby('Cluster')[feature_cols].agg(lambda x: x.mode()[0] if x.dtype == 'object' else x.mean())
- 
-# Voor een visuele heatmap pakken we de numerieke (geschaalde) data uit de preprocessor
-X_titles = result['preprocessor'].get_feature_names_out()
-temp_df = pd.DataFrame(result['X_transformed'], columns=X_titles)
-temp_df['cluster'] = clusters
- 
-# Gemiddelde activatie per feature per cluster
-heatmap_data = temp_df.groupby('cluster').mean()
- 
-fig_heatmap = px.imshow(
-    heatmap_data,
-    labels=dict(x="Kenmerken", y="Cluster", color="Score"),
-    title="Cluster Paspoort: Wat typeert elk segment?",
-    aspect="auto",
-    color_continuous_scale='RdBu_r'
-)
-fig_heatmap.show()
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC #8. Paulien 
-# MAGIC # 
-# MAGIC
-# MAGIC Cluster 1 (groen): Digitale, loyale klanten (n=51927, 14%)
-# MAGIC - Gemiddeld ~56 jaar, 89 maanden klant
-# MAGIC - Zeer actief online (veel online visits, gemiddeld 44x)
-# MAGIC - Weinig live contacten
-# MAGIC - Energieprofiel ingevuld (98%), consent gegeven (98%)
-# MAGIC - Vooral via online kanaal binnengekomen
-# MAGIC - Hoogste oriëntatiescore (43)
-# MAGIC - Redelijk vroeg getekend, 106 dagen na start retentie
-# MAGIC
-
-# COMMAND ----------
-
-df_paulien = df_processed[df_processed['Cluster'] == 3]
-
-current_date = datetime.now().strftime('%d%m%y')
-df_paulien.to_parquet(
-    f'/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_paulien_{current_date}.parquet',
-    index=False
-)
-
-# COMMAND ----------
-
-# DBTITLE 1,load parquet file cluster 1
-df_paulien = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_paulien_160226.parquet',)
-df_paulien.head()
-
-# COMMAND ----------
-
-#originele tabel met edm data om te joinen 
-df_edm = spark.sql('''
-
-SELECT * FROM `snowflake_prd_prototype_data_analysts`.`playground`.BASETABLE_RETENTION_SEGMENTATION_V2_28022026 
-''').toPandas()
-
-# COMMAND ----------
-
-#inlezen vanaf de edm dataset
-df_edm = pd.read_parquet('/Workspace/data_analysts/MM/retentie_clusteranalyse/data/df_edm_160226.parquet',)
-df_edm.head()
-
-# COMMAND ----------
-
-df_paulien.dtypes
-
-# COMMAND ----------
-
-df_edm.dtypes
-
-# COMMAND ----------
-
-df_paulien['CUSTOMERNUMBER'] = df_paulien['CUSTOMERNUMBER'].astype(str)
-df_edm['CUSTOMERNUMBER'] = df_edm['CUSTOMERNUMBER'].astype(str)
-df_paulien['BRANDID'] = df_paulien['BRANDID'].astype(str)
-df_edm['BRANDID'] = df_edm['BRANDID'].astype(str)
-
-#Zelfde kolomnamen checken behalve customernumber en brandid
-join_keys = ['CUSTOMERNUMBER', 'BRANDID']
-dup_cols = [col for col in df_paulien.columns if col in df_edm.columns and col not in join_keys]
-
-#Droppen van de duplicate kolommen voor het joinen 
-df_edm_nodup = df_edm.drop(columns=dup_cols, errors='ignore')
-
-df_paulien_edm = df_paulien.merge(df_edm_nodup, on=join_keys)
-
-# COMMAND ----------
-
-df_paulien_edm.head()
-
-# COMMAND ----------
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-numeric_cols = df_paulien_edm.select_dtypes(include='number').columns
-n_cols = 3
-n_rows = (len(numeric_cols) + n_cols - 1) // n_cols
-plt.figure(figsize=(5 * n_cols, 4 * n_rows))
-
-for idx, col in enumerate(numeric_cols, 1):
-    plt.subplot(n_rows, n_cols, idx)
-    sns.histplot(df_paulien_edm[col].dropna(), kde=True)
-    plt.title(col, fontsize=10)
-    plt.xlabel(col, fontsize=9)
-    plt.ylabel('', fontsize=9)
-    plt.xticks(fontsize=8)
-
-plt.tight_layout()
-plt.show()
-
-# COMMAND ----------
-
-columns_list_paulien = df_paulien_edm.columns.tolist()
-print(columns_list_paulien)
-
-# COMMAND ----------
-
-df_paulien_edm.head()
-
-# COMMAND ----------
-
-feature_cols = [
-    'AANTAL_MAANDEN_KLANT', 'TERUGLEVERING_JA', 'LIVE_CONTACTS', 'ENERGIEPROFIEL_INGEVULD', 'ONLINE_VISITS', 'CONSENT_GEGEVEN', 'LOYALTY_KLANT', 'ORIENTATIE_SCORE', 'DAYS_RETENTIE_CONTRACT_GETEKEND',
-    'EDM_PROV', 
-    'EDM_HH_4GEOTYP', 
-    'EDM_HH_LVNSFS2', 
-    'EDM_HH_KOOPKR', 
-    'EDM_HH_OPLEID2', 
-    'EDM_HH_FUNCTIE', 
-    'EDM_HH_WONTYP2', 
-    'EDM_HH_WON_EIG', 
-    'EDM_HH_ZP_AANW', 
-    'EDM_HH_MBEWUST', 
-    'EDM_HH_E_TYPE', 
-    'EDM_HH_BS_SRT', 
-    'EDM_HH_B_SPAAR', 
-    'EDM_HH_RISAVRS', 
-    'EDM_HH_FINTYPE']
-
-# COMMAND ----------
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-n_cols = 3
-n_rows = (len(feature_cols) + n_cols - 1) // n_cols
-plt.figure(figsize=(5 * n_cols, 4 * n_rows))
-
-for idx, col in enumerate(feature_cols, 1):
-    plt.subplot(n_rows, n_cols, idx)
-    if df_paulien_edm[col].dtype.kind in ('i', 'u', 'f'):
-        sns.histplot(df_paulien_edm[col].dropna(), kde=True)
-    else:
-        sns.countplot(y=df_paulien_edm[col].astype(str))
-    plt.title(col, fontsize=10)
-    plt.xlabel(col, fontsize=9)
-    plt.ylabel('', fontsize=9)
-    plt.xticks(fontsize=8)
-
-plt.tight_layout()
-plt.show()
+for col in categorical_columns:
+    plot_categorical_distribution(df_clusters, col)
